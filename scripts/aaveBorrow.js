@@ -2,22 +2,26 @@ const { ethers, getNamedAccounts, network } = require("hardhat")
 const { getWeth, AMOUNT } = require("../scripts/getWeth.js")
 const { networkConfig } = require("../helper-hardhat-config")
 
-const BORROW_MODE = 2 // Variable borrow mode. Stable was disabled. 
+const BORROW_MODE = 2 // Variable borrow mode. Stable was disabled  .the type of borrow debt.Stable: 1, Variable: 2
 
 async function main() {
+    // the protocol treats everything as an ERC20 token
     await getWeth()
     const { deployer } = await getNamedAccounts()
-    const lendingPool = await getLendingPool(deployer)
+    const lendingPool = await getLendingPool(deployer) // get lendingpool address
     const wethTokenAddress = networkConfig[network.config.chainId].wethToken
+    // approve!!!
     await approveErc20(wethTokenAddress, lendingPool.address, AMOUNT, deployer)
+    // deposit!!!
     console.log("Depositing WETH...")
-    await lendingPool.deposit(wethTokenAddress, AMOUNT, deployer, 0)
+    await lendingPool.deposit(wethTokenAddress, AMOUNT, deployer, 0) // deposit ETH -> WETH ; function deposit(address asset, uint256 amount, address onBehalfof, uint16 referralCode)
     console.log("Desposited!")
     // Getting your borrowing stats
     let { availableBorrowsETH, totalDebtETH } = await getBorrowUserData(lendingPool, deployer)
+    // availableBorrowsETH ?? what the conversion rate on DAI is?
     const daiPrice = await getDaiPrice()
     const amountDaiToBorrow = availableBorrowsETH.toString() * 0.95 * (1 / daiPrice.toNumber())
-    const amountDaiToBorrowWei = ethers.utils.parseEther(amountDaiToBorrow.toString())
+    const amountDaiToBorrowWei = ethers.utils.parseEther(amountDaiToBorrow.toString()) // we need amount in wei
     console.log(`You can borrow ${amountDaiToBorrow.toString()} DAI`)
     await borrowDai(
         networkConfig[network.config.chainId].daiToken,
@@ -35,25 +39,35 @@ async function main() {
     await getBorrowUserData(lendingPool, deployer)
 }
 
+// https://docs.aave.com/developers/v/2.0/the-core-protocol/lendingpool#repay
 async function repay(amount, daiAddress, lendingPool, account) {
+    // first, we have to approve sending our DAI back to aave
     await approveErc20(daiAddress, lendingPool.address, amount, account)
-    const repayTx = await lendingPool.repay(daiAddress, amount, BORROW_MODE, account)
+    const repayTx = await lendingPool.repay(daiAddress, amount, BORROW_MODE, account) // BORROW_MODE -> the type of borrow debt. Stable: 1, Variable: 2
     await repayTx.wait(1)
     console.log("Repaid!")
 }
 
+// https://docs.aave.com/developers/v/2.0/the-core-protocol/lendingpool#borrow
 async function borrowDai(daiAddress, lendingPool, amountDaiToBorrow, account) {
-    const borrowTx = await lendingPool.borrow(daiAddress, amountDaiToBorrow, BORROW_MODE, 0, account)
+    const borrowTx = await lendingPool.borrow(
+        daiAddress,
+        amountDaiToBorrow,
+        BORROW_MODE,
+        0,
+        account
+    )
     await borrowTx.wait(1)
     console.log("You've borrowed!")
 }
 
 async function getDaiPrice() {
+    // gatContract -> reading doesn't need a signer , sending needs
     const daiEthPriceFeed = await ethers.getContractAt(
         "AggregatorV3Interface",
         networkConfig[network.config.chainId].daiEthPriceFeed
     )
-    const price = (await daiEthPriceFeed.latestRoundData())[1]
+    const price = (await daiEthPriceFeed.latestRoundData())[1] // [1] -> latestRoundData will retuen 5 value, answer is the [1] index -> check AggregatorV3Interface.sol
     console.log(`The DAI/ETH price is ${price.toString()}`)
     return price
 }
@@ -65,6 +79,7 @@ async function approveErc20(erc20Address, spenderAddress, amount, signer) {
     console.log("Approved!")
 }
 
+// https://docs.aave.com/developers/v/2.0/the-core-protocol/addresses-provider#getlendingpool
 async function getLendingPool(account) {
     const lendingPoolAddressesProvider = await ethers.getContractAt(
         "ILendingPoolAddressesProvider",
@@ -76,12 +91,10 @@ async function getLendingPool(account) {
     return lendingPool
 }
 
+// https://docs.aave.com/developers/v/2.0/the-core-protocol/lendingpool#getuseraccountdata
 async function getBorrowUserData(lendingPool, account) {
-    const {
-        totalCollateralETH,
-        totalDebtETH,
-        availableBorrowsETH
-    } = await lendingPool.getUserAccountData(account)
+    const { totalCollateralETH, totalDebtETH, availableBorrowsETH } =
+        await lendingPool.getUserAccountData(account)
     console.log(`You have ${totalCollateralETH} worth of ETH deposited.`)
     console.log(`You have ${totalDebtETH} worth of ETH borrowed.`)
     console.log(`You can borrow ${availableBorrowsETH} worth of ETH.`)
@@ -90,7 +103,7 @@ async function getBorrowUserData(lendingPool, account) {
 
 main()
     .then(() => process.exit(0))
-    .catch(error => {
+    .catch((error) => {
         console.error(error)
         process.exit(1)
     })
